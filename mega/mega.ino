@@ -1,24 +1,44 @@
 #include <Servo.h>
 #include <math.h>
+#include <PS2X_lib.h>  //for v1.6
 #define DEBUG
 
-#define m_0_1_pin 2
-#define m_0_2_pin 3
-#define m_0_3_pin 4
-#define m_1_1_pin 5
-#define m_1_2_pin 6 
-#define m_1_3_pin 7
-#define m_2_1_pin 8
-#define m_2_2_pin 9
-#define m_2_3_pin 10
-#define m_3_1_pin 11
-#define m_3_2_pin 12
-#define m_3_3_pin 13
+//controller
+PS2X ps2x; // create PS2 Controller Class
+int error = 0; 
+byte type = 0;
+byte vibrate = 0;
 
-#define _19_relay_pin 48
-#define _12_relay_pin 52
-#define _8_relay_pin 46
-#define _5_relay_pin 50
+//#define m_0_1_pin 2
+//#define m_0_2_pin 3
+//#define m_0_3_pin 4
+//#define m_1_1_pin 5
+//#define m_1_2_pin 6 
+//#define m_1_3_pin 7
+//#define m_2_1_pin 8
+//#define m_2_2_pin 9
+//#define m_2_3_pin 10
+//#define m_3_1_pin 11
+//#define m_3_2_pin 12
+//#define m_3_3_pin 13
+
+#define m_1_1_pin 2
+#define m_1_2_pin 3
+#define m_1_3_pin 4
+#define m_2_1_pin 5
+#define m_2_2_pin 6 
+#define m_2_3_pin 7
+#define m_3_1_pin 8
+#define m_3_2_pin 9
+#define m_3_3_pin 10
+#define m_0_1_pin 11
+#define m_0_2_pin 12
+#define m_0_3_pin 13
+
+#define _19_relay_pin 40
+#define _12_relay_pin 44
+#define _8_relay_pin 38
+#define _5_relay_pin 42
 
 // MOVEL <leg#> <px> <py> <pz> [speed (mm/s)]
 
@@ -39,13 +59,13 @@ float motor_angle[12] = { 0, 0, 0, 0, 0, 0, 0, 0 , 0, 0, 0, 0};
 
 int motor_pos[12] = { 0, 0, 0, 0, 0, 0, 0, 0 , 0, 0, 0, 0};
 
-int max_angle[12] = {86, 55, 83, 77, 45, 91, 82, 55, 82, 80, 55, 80};
+int max_angle[12] = {80, 55, 80, 86, 55, 83, 77, 45, 91, 82, 55, 82};
 //                  0_1  0_2 0_3 1_1 1_2 1_3 2_1 2_2 2_3 3_1 3_2 3_3
-int min_angle[12] = {-74, -55, -90, -83, -55, -79, -78, -50, -88, -80, -50, -90};
+int min_angle[12] = {-80, -50, -90, -74, -55, -90, -83, -55, -79, -78, -50, -88};
 //                   0_1  0_2  0_3  1_1  1_2  1_3  2_1  2_2  2_3  3_1  3_2  3_3
 int motor_dir[12] = {  1,  -1,  1,  1,  -1,  1,  1,  -1,  1,  1,  -1,  1 };
 //                   0_1 0_2 0_3 1_1 1_2 1_3 2_1 2_2 2_3 3_1 3_2 3_3
-int motor_offset[12] = {  6,  0,  -2,  -3,  -5,  6,  2,  0,  -3,  0,  5,  -5 };
+int motor_offset[12] = {0,  5,  -5 ,   6,  0,  -2,  -3,  -5,  6,  2,  0,  -3};
 //                      0_1 0_2 0_3 1_1 1_2 1_3 2_1 2_2 2_3 3_1 3_2 3_3
 
 void MOVEL();
@@ -56,10 +76,27 @@ void parseCmd();
 void writeServo();
 void xyz2degree(int legNum, float x,float y,float z, float& theta1, float& theta2, float& theta3);
 void degree2xyz(int legNum, float theta1,float theta2,float theta3, float& x, float& y, float& z);
+void forward(int steps=1);
+void backward(int steps=1);
+void leftward(int steps=1);
+void rightward(int steps=1);
+void stand(int height=50);
+
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  
+  error = ps2x.config_gamepad(52,51,53,50, true, true);
+  if(error == 0){
+    Serial.println("Controller OK!");
+  }
+  else if(error == 1)
+   Serial.println("No controller found, check wiring, see readme.txt to enable debug. visit www.billporter.info for troubleshooting tips");
+  else if(error == 2)
+   Serial.println("Controller found but not accepting commands. see readme.txt to enable debug. Visit www.billporter.info for troubleshooting tips");
+  else if(error == 3)
+   Serial.println("Controller refusing to enter Pressures mode, may not support it. ");
 
   motor[0].attach(m_0_1_pin);
   motor[1].attach(m_0_2_pin);
@@ -86,18 +123,65 @@ void setup() {
   digitalWrite(_12_relay_pin, 0);
   digitalWrite(_8_relay_pin, 0);
   digitalWrite(_5_relay_pin, 0);
+  stand();
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   while( Serial.available() ){
-     Serial.println( "----------" );
-     parseCmd();
-     writeServo();
-    }
-    
+    Serial.println( "----------" );
+    parseCmd();
+    writeServo();
   }
+  ps2x.read_gamepad(false, vibrate);
+  // Serial.println("-----");
+  // Serial.println(ps2x.Analog(PSS_LY));
+  // Serial.println(ps2x.Analog(PSS_LX)); 
+  // Serial.println(ps2x.Analog(PSS_RY)); 
+  // Serial.println(ps2x.Analog(PSS_RX)); 
 
+  
+  if(ps2x.Button(PSB_L1) || ps2x.Button(PSB_R1)){
+    int height = (255-ps2x.Analog(PSS_RY))/255*80;
+    stand(height);
+    Serial.println(height);
+  }else{
+    int pos_x = ps2x.Analog(PSS_LX)-128;
+    int pos_y = ps2x.Analog(PSS_LY)-127;
+    
+    if( abs(pos_x) > abs(pos_y)){
+      if(pos_x >100){
+        rightward(1);
+      }else if (pos_x < -100){
+        leftward(1);
+      }
+    }else{
+      if(pos_y >100){
+        backward(1);
+      }else if (pos_y < -100){
+        forward(1);
+      }
+    }
+  }
+  
+  delay(50);
+}
+  
+void forward(int steps){
+//  for(int i ; i<steps ; ++i){
+//
+//  }
+}
+void backward(int steps){};
+void leftward(int steps){};
+void rightward(int steps){};
+void stand(int height){
+  MOVEP(0, 200,200,-1*height);
+  MOVEP(1, -200,200,-1*height);
+  MOVEP(2, -200,-200,-1*height);
+  MOVEP(3, 200,-200,-1*height);
+  writeServo();
+}
   
 void MOVEL(){
 
@@ -113,7 +197,15 @@ void MOVEP(int legNum, float x,float y,float z){
   float check_z = 0;
   xyz2degree(legNum, x, y, z, theta1, theta2, theta3);
   degree2xyz(legNum, theta1, theta2, theta3, check_x, check_y, check_z);
-
+//  Serial.println("\n check number");
+//  Serial.println(theta1);
+//  Serial.println(theta2);
+//  Serial.println(theta3);
+//
+//  Serial.println(check_x);
+//  Serial.println(check_y);
+//  Serial.println(check_z);
+  
   if( abs(x-check_x) + abs(y-check_y) + abs(z-check_z) < 1){
     //valid pos
     motor_angle[legNum*3 + 0] = theta1;
@@ -149,17 +241,19 @@ void HOME(){
 // R
 void parseCmd(){
   char ch = Serial.read();
-  Serial.print(ch);
   if(ch == 'M'){
-    ch = Serial.read();
+    if(Serial.available())
+      ch = Serial.read();
     if( ch == 'P'){
-      if(Serial.available()){
-        float legNum = Serial.parseFloat();
-        float x = Serial.parseFloat();
-        float y = Serial.parseFloat();
-        float z = Serial.parseFloat();
-        MOVEP(legNum, x, y, z);
-      }
+      Serial.print("movep");
+      
+      int legNum = Serial.parseInt();
+      float x = Serial.parseFloat();
+      float y = Serial.parseFloat();
+      float z = Serial.parseFloat();
+      
+      MOVEP(legNum, x, y, z);
+      
       
     }else if( ch == 'L'){
 
@@ -198,7 +292,7 @@ void writeServo(){
 
 void xyz2degree(int legNum, float x,float y,float z, float& theta1, float& theta2, float& theta3)
 {
-  float robotWidth = 150;
+  float robotWidth = 180;
   float robotHeight = 49;
   float robotL1 = 50;
   float robotL2 = 149;
@@ -209,52 +303,70 @@ void xyz2degree(int legNum, float x,float y,float z, float& theta1, float& theta
   float th3 = 0;
   float centerPointX = 0;
   float centerPointY = 0;  
+  float thr = 0;
   
   switch(legNum){
     case 0:
       centerPointX = robotWidth/2;
       centerPointY = robotWidth/2;
+      
       break;
     case 1:
       centerPointX = -1*robotWidth/2;
       centerPointY = robotWidth/2;
+      
       break;
     case 2:
       centerPointX = -1*robotWidth/2;
       centerPointY = -1*robotWidth/2;
+      
       break;
     case 3:
       centerPointX = robotWidth/2;
       centerPointY = -1*robotWidth/2;
+      
       break;
     default:
       break;  
   }
-
+  
+  thr =atan((y-centerPointY)/(x-centerPointX))/PI*180 ;
+  thr = (x-centerPointX)>0? thr: thr+180;
+  
   float r = sqrt((x-centerPointX)*(x-centerPointX)+(y-centerPointY)*(y-centerPointY))- robotL1;
-  float thr = atan((y-centerPointY)/(x-centerPointX));
+  
   float _z = z - robotHeight;
   float L = sqrt(r*r + _z*_z);
   float thL = atan(_z/r)/PI*180;
-
+//  Serial.print(" thr: ");Serial.print(thr);
   th3 = acos((robotL2*robotL2+robotL3*robotL3-L*L)/(2*robotL2*robotL3))/PI*180;
   th2 = acos((robotL2*robotL2+L*L-robotL3*robotL3)/(2*robotL2*L))/PI*180 + thL;
-  th1 = thr - legNum*90;
+  th1 = thr - 90*legNum;
 
-  theta1 = th1;
+  theta1 = th1-45;
   theta2 = th2;
-  theta3 = th3;
+  theta3 = th3-90;
+
+  if(theta1>=360) theta1 = theta1-360;
+  if(theta2>=360) theta2 = theta2-360;
+  if(theta3>=360) theta3 = theta3-360;
+
+  if(theta1<=-360) theta1 = theta1+360;
+  if(theta2<=-360) theta2 = theta2+360;
+  if(theta3<=-360) theta3 = theta3+360;
+  
+  return;
 }
 
 void degree2xyz(int legNum, float theta1,float theta2,float theta3, float& x, float& y, float& z)
 {
-  float robotWidth = 150;
+  float robotWidth = 180;
   float robotHeight = 49;
   float robotL1 = 50;
   float robotL2 = 149;
   float robotL3 = 198;
   
-  float th1 = theta1;
+  float th1 = theta1+45;
   float th2 = theta2;
   float th3 = theta3+90;
   float centerPointX = 0;
@@ -265,22 +377,22 @@ void degree2xyz(int legNum, float theta1,float theta2,float theta3, float& x, fl
 
   switch(legNum){
     case 0:
-      th1 = theta1;
+      th1 = th1;
       centerPointX = robotWidth/2;
       centerPointY = robotWidth/2;
       break;
     case 1:
-      th1 = theta1+90;
+      th1 = th1+90;
       centerPointX = -1*robotWidth/2;
       centerPointY = robotWidth/2;
       break;
     case 2:
-      th1 = theta1+180;
+      th1 = th1+180;
       centerPointX = -1*robotWidth/2;
       centerPointY = -1*robotWidth/2;
       break;
     case 3:
-      th1 = theta1+270;
+      th1 = th1+270;
       centerPointX = robotWidth/2;
       centerPointY = -1*robotWidth/2;
       break;
@@ -291,4 +403,5 @@ void degree2xyz(int legNum, float theta1,float theta2,float theta3, float& x, fl
   x = centerPointX + r * cos(th1/180*PI);
   y = centerPointY + r * sin(th1/180*PI);
   z = _z + robotHeight;
+  return;
 }
