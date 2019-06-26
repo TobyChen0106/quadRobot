@@ -68,6 +68,10 @@ int motor_dir[12] = {  1,  -1,  1,  1,  -1,  1,  1,  -1,  1,  1,  -1,  1 };
 int motor_offset[12] = {0,  5,  -5 ,   6,  0,  -2,  -3,  -5,  6,  2,  0,  -3};
 //                      0_1 0_2 0_3 1_1 1_2 1_3 2_1 2_2 2_3 3_1 3_2 3_3
 
+float line[4][7] = {0};
+unsigned long long updateLinearStart_time[4] = {0};
+int updateLinearFlag[4] = {0};
+
 void MOVEL();
 void MOVEP();
 void POS(int leg, int joint, float angle, float speed = 1);
@@ -168,9 +172,9 @@ void loop() {
 }
   
 void forward(int steps){
-//  for(int i ; i<steps ; ++i){
-//
-//  }
+  // for(int i ; i<steps ; ++i){
+    
+  // }
 }
 void backward(int steps){};
 void leftward(int steps){};
@@ -182,9 +186,49 @@ void stand(int height){
   MOVEP(3, 200,-200,-1*height);
   writeServo();
 }
-  
-void MOVEL(){
 
+
+
+// MOVEP <leg#> <px> <py> <pz>
+void MOVEL(int legNum, float x,float y,float z, float speed){
+  float current_x = 0;
+  float current_y = 0;
+  float current_z = 0;
+
+  degree2xyz(legNum, motor_angle[legNum*3+0], motor_angle[legNum*3+1], motor_angle[legNum*3+2], current_x, current_y, current_z);
+
+  line[legNum][0] = current_x;
+  line[legNum][1] = current_y;
+  line[legNum][2] = current_z;
+  line[legNum][3] = x;
+  line[legNum][4] = y;
+  line[legNum][5] = z;
+  line[legNum][6] = speed;
+  // [current_x, current_y, current_z, x, y, z, speed];
+  updateLinearStart_time[legNum] = millis();
+  updateLinearFlag[legNum] = 1;
+}
+
+void updateLinear(){
+  while(updateLinearFlag[0] != 0 || updateLinearFlag[1] != 0  || updateLinearFlag[2] != 0  || updateLinearFlag[3] != 0 ){
+    for (int i=0; i < 4 ; ++i){
+      if(updateLinearFlag[i] != 0){
+        float distance = (millis()-updateLinearStart_time[i])/1000*line[i][6];
+        float L = sqrt((line[i][0]-line[i][3])*(line[i][0]-line[i][3]) +(line[i][1]-line[i][4])*(line[i][1]-line[i][4])+(line[i][2]-line[i][5])*(line[i][2]-line[i][5]));
+        if( distance >= L)
+        {
+          updateLinearFlag[i] = 0;
+          continue;
+        } 
+        float distanceRatio = distance/L;
+        float v_x = line[i][3] - line[i][0];
+        float v_y = line[i][4] - line[i][1];
+        float v_z = line[i][5] - line[i][2];
+        MOVEP(i, line[i][0]+v_x*distanceRatio, line[i][1]+v_y*distanceRatio, line[i][2]+v_z*distanceRatio );
+      }
+      writeServo();
+    }
+  }
 }
 
 // MOVEP <leg#> <px> <py> <pz>
